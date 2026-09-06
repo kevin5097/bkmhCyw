@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
-<title>봉결미희채율채원</title>
+<title>우리집</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
 <style>
 /* ============================================================
@@ -278,6 +278,24 @@ nav button.on .ic{transform:translateY(-1px)}
 .led.rev{opacity:.45} .led.rev .a{text-decoration:line-through}
 .led .undo{font-size:11px;font-weight:700;color:var(--warn);flex:none}
 
+/* 세그먼트 */
+.seg{display:grid;grid-template-columns:1fr 1fr;gap:3px;background:var(--bg-sunk);
+  padding:3px;border-radius:11px;margin-bottom:14px}
+.seg button{padding:8px 0;border-radius:8px;font-size:13.5px;font-weight:700;color:var(--muted)}
+.seg button.on{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(30,35,33,.08)}
+
+/* 가계부 */
+.cashsum{display:flex;justify-content:center;gap:14px;margin-top:8px;font-size:12.5px;color:var(--muted)}
+.cashsum i{font-style:normal;font-size:9px;vertical-align:1px}
+.cashsum .up{color:var(--ok)} .cashsum .dn{color:var(--warn)}
+.cashday{padding:9px 14px 4px;font-size:11.5px;font-weight:700;color:var(--muted);
+  background:var(--paper);border-bottom:1px solid var(--line-soft)}
+.cash{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--line-soft)}
+.cash:last-child{border-bottom:0}
+.cash .d{font-size:11.5px;color:var(--muted);margin-top:2px}
+.cash .ca{font-weight:700;font-size:14px;flex:none}
+.cash .ca.plus{color:var(--ok)} .cash .ca.minus{color:var(--ink)}
+
 /* ============================================================
    시트
    ============================================================ */
@@ -345,8 +363,8 @@ nav button.on .ic{transform:translateY(-1px)}
    CONFIG — 배포 시 여기만 채우면 됩니다
    ============================================================ */
 const CONFIG = {
-  SUPABASE_URL: 'https://lgrgsvoxdzzbbrxbnalx.supabase.co',          // 예: https://xxxx.supabase.co
-  SUPABASE_ANON_KEY: 'sb_publishable_2-T72SgnioMi0y3UJ2gaEQ_urpoAq-Q',
+  SUPABASE_URL: '',          // 예: https://xxxx.supabase.co
+  SUPABASE_ANON_KEY: '',
   PIN: '0305',
   AI_ENDPOINT: ''            // 자연어 입력용 프록시 (Supabase Edge Function 권장)
 };
@@ -392,7 +410,7 @@ function toast(msg){
 /* ============================================================
    저장소 — Supabase 있으면 원격, 없으면 메모리(둘러보기)
    ============================================================ */
-const TABLES = ['events','checklist_items','trips','chores','chore_logs','point_ledger','exchanges','memos','dinner_plans','dinner_options','dinner_votes','homecomings','audit_logs'];
+const TABLES = ['events','checklist_items','trips','chores','chore_logs','point_ledger','exchanges','memos','dinner_plans','dinner_options','dinner_votes','homecomings','settings','cashbook','audit_logs'];
 // 같은 Supabase 프로젝트에 다른 앱 테이블이 있어도 부딪히지 않도록 접두사를 씁니다.
 // 코드 안에서는 cache.events 처럼 짧은 이름 그대로 쓰고, 원격 호출할 때만 붙입니다.
 const PREFIX = 'fam_';
@@ -438,6 +456,20 @@ const DB = {
   }
 };
 
+// 공용 설정 — 포인트 단가처럼 가족 전체가 같은 값을 봐야 하는 것
+function getSetting(key, dflt){
+  const r = cache.settings.find(x=>x.key===key);
+  return r && r.value!=null ? r.value : dflt;
+}
+async function setSetting(key, value){
+  const r = cache.settings.find(x=>x.key===key);
+  if(r) await DB.update('settings', r.id, { value:String(value), updated_by:state.me, updated_at:new Date().toISOString() });
+  else  await DB.insert('settings', { key, value:String(value), updated_by:state.me, updated_at:new Date().toISOString() });
+}
+function applyRates(){
+  MEMBERS.forEach(m=>{ const v = getSetting('rate.'+m.id, null); if(v!=null) m.rate = Number(v)||0; });
+}
+
 async function audit(entity,entity_id,action,before){
   await DB.insert('audit_logs',{ entity, entity_id, action, actor_id:state.me, before: before?JSON.stringify(before):null });
 }
@@ -455,6 +487,7 @@ const state = {
   tripId:null,
   tripDay:0,
   ptMember:'cy',
+  ptView:'point',   // point | cash
   openCards: new Set()
 };
 
@@ -496,6 +529,9 @@ function tripsOn(dateStr){
 function balance(mid){
   return cache.point_ledger.filter(l=>l.member_id===mid && !l.revoked)
     .reduce((s,l)=>s+Number(l.amount),0);
+}
+function cashBalance(mid){
+  return cache.cashbook.filter(c=>c.member_id===mid).reduce((s,c)=>s+Number(c.amount),0);
 }
 async function award(mid, amount, source, ref_id, note){
   await DB.insert('point_ledger',{ member_id:mid, amount, source, ref_id:ref_id||null, note:note||null, granted_by:state.me, revoked:false });
@@ -929,6 +965,10 @@ function viewPoints(){
       `<button class="tab ${state.ptMember===x.id?'on':''}" onclick="state.ptMember='${x.id}';render()">${x.name}</button>`).join('')
       + `</div>`;
   }
+  h += `<div class="seg">
+    <button class="${state.ptView==='point'?'on':''}" onclick="state.ptView='point';render()">포인트</button>
+    <button class="${state.ptView==='cash'?'on':''}" onclick="state.ptView='cash';render()">가계부</button></div>`;
+  if(state.ptView==='cash') return h + viewCash(mid, isParent);
 
   h += `<div class="card ptop">
     <div class="lb">${m.name}의 포인트</div>
@@ -988,6 +1028,88 @@ async function revoke(id){
   await audit('point_ledger',id,'revoke',l);
   closeSheet(); toast('취소했어요'); render();
 }
+/* ============================================================
+   가계부 — 실제 현금. 포인트와 별개 원장입니다.
+   ============================================================ */
+const CAT_IN  = ['용돈','포인트 정산','세뱃돈','선물','기타'];
+const CAT_OUT = ['간식','문구','장난감','책','저축','기타'];
+
+function viewCash(mid, isParent){
+  const m = M[mid];
+  const bal = cashBalance(mid);
+  const rows = cache.cashbook.filter(c=>c.member_id===mid)
+    .sort((a,b)=>(b.date+b.created_at).localeCompare(a.date+a.created_at));
+  const thisMonth = todayStr().slice(0,7);
+  const mIn  = rows.filter(r=>r.date.startsWith(thisMonth) && r.amount>0).reduce((s,r)=>s+r.amount,0);
+  const mOut = rows.filter(r=>r.date.startsWith(thisMonth) && r.amount<0).reduce((s,r)=>s-r.amount,0);
+
+  let h = `<div class="card ptop">
+    <div class="lb">${m.name}의 지갑</div>
+    <div class="big">${won(bal)}<span style="font-size:22px;font-weight:700"> 원</span></div>
+    <div class="cashsum">
+      <span><i class="up">▲</i> 이번 달 ${won(mIn)}원</span>
+      <span><i class="dn">▼</i> ${won(mOut)}원</span>
+    </div>
+    <div class="row2" style="margin-top:16px">
+      <button class="btn" onclick="sheetCash('${mid}',1)">받았어요</button>
+      <button class="btn ghost" onclick="sheetCash('${mid}',-1)">썼어요</button>
+    </div>
+  </div>`;
+
+  if(bal<0) h += `<div class="note" style="margin-top:12px;color:var(--warn)">잔액이 마이너스입니다. 빠뜨린 수입이 있는지 확인해보세요.</div>`;
+
+  h += `<div class="sec"><div class="sec-h"><h2>내역</h2><span class="act">${rows.length}건</span></div>`;
+  if(!rows.length){ h += `<div class="empty">받거나 쓴 걸 기록해보세요</div></div>`; return h; }
+
+  let lastDate = null;
+  h += `<div class="card">` + rows.slice(0,60).map(r=>{
+    let head = '';
+    if(r.date!==lastDate){ lastDate=r.date;
+      head = `<div class="cashday">${fmtKo(r.date)}</div>`; }
+    return head + `<div class="cash" onclick="sheetCash('${mid}',${r.amount>0?1:-1},'${r.id}')">
+      <div style="flex:1"><div>${esc(r.note||r.category||'')}</div>
+        ${r.category&&r.note?`<div class="d">${esc(r.category)}</div>`:''}</div>
+      <span class="ca ${r.amount>0?'plus':'minus'}">${r.amount>0?'+':'−'}${won(Math.abs(r.amount))}</span>
+    </div>`;
+  }).join('') + `</div></div>`;
+  return h;
+}
+
+function sheetCash(mid, sign, id){
+  const r = id ? cache.cashbook.find(x=>x.id===id) : null;
+  const s = r ? (r.amount>0?1:-1) : sign;
+  const cats = s>0 ? CAT_IN : CAT_OUT;
+  openSheet(`<h3>${r?'내역 수정':(s>0?'받은 돈':'쓴 돈')}</h3>
+    <div class="sub">${M[mid].name}의 지갑</div>
+    <div class="field"><label>금액</label>
+      <input type="number" id="cAmt" inputmode="numeric" value="${r?Math.abs(r.amount):''}" placeholder="0"></div>
+    <div class="field"><label>분류</label><div class="picks" id="cCat">
+      ${cats.map(c=>`<button type="button" class="pick ${r?.category===c?'on':''}" data-v="${c}">${c}</button>`).join('')}
+    </div></div>
+    <div class="field"><label>내용</label>
+      <input id="cNote" value="${esc(r?.note||'')}" placeholder="${s>0?'할머니한테 받음':'편의점 젤리'}"></div>
+    <div class="field"><label>날짜</label>
+      <input type="date" id="cDate" value="${r?.date||todayStr()}"></div>
+    <button class="btn" onclick="saveCash('${mid}',${s},${r?`'${r.id}'`:'null'})">${r?'수정':'기록'}</button>
+    ${r?`<button class="btn ghost" style="margin-top:8px;color:var(--warn)" onclick="delCash('${r.id}')">삭제</button>`:''}`);
+  bindPicks('cCat',false);
+}
+async function saveCash(mid, sign, id){
+  const v = Math.abs(Number($('cAmt').value)||0);
+  if(!v) return toast('금액을 입력하세요');
+  const row = { member_id:mid, date:$('cDate').value, amount:sign*v,
+    category:picked('cCat')[0]||null, note:$('cNote').value.trim()||null, created_by:state.me };
+  if(id) await DB.update('cashbook',id,row); else await DB.insert('cashbook',row);
+  closeSheet(); toast(id?'수정했어요':(sign>0?`+${won(v)}원`:`−${won(v)}원`)); render();
+}
+async function delCash(id){
+  if(!confirm('이 내역을 지울까요?')) return;
+  const r = cache.cashbook.find(x=>x.id===id);
+  await audit('cashbook',id,'delete',r);
+  await DB.remove('cashbook',id);
+  closeSheet(); toast('삭제했어요'); render();
+}
+
 function sheetSettle(id){
   const x = cache.exchanges.find(e=>e.id===id);
   const bal = balance(x.member_id);
@@ -1004,10 +1126,14 @@ async function settleExchange(id, full){
   const bal = balance(x.member_id);
   const cut = full ? bal : x.points;
   if(cut<=0){ toast('차감할 포인트가 없어요'); return; }
+  const cash = full ? cut*M[x.member_id].rate : x.amount_won;
   await DB.update('exchanges',id,{ status:'done', settled_at:new Date().toISOString(), settled_by:state.me });
   await award(x.member_id, -cut, 'exchange', id,
-    full ? `전액 정산 ${won(cut*M[x.member_id].rate)}원` : `용돈 ${won(x.amount_won)}원`);
-  closeSheet(); toast(full?'전액 정산했어요':'처리했어요'); render();
+    full ? `전액 정산 ${won(cash)}원` : `용돈 ${won(x.amount_won)}원`);
+  // 실제로 건넨 돈이므로 가계부에도 수입으로 잡습니다
+  await DB.insert('cashbook',{ member_id:x.member_id, date:todayStr(), amount:cash,
+    category:'포인트 정산', note:`${won(cut)}P 전환`, ref_id:id, created_by:state.me });
+  closeSheet(); toast(`${won(cash)}원 지갑에 넣었어요`); render();
 }
 async function rejectExchange(id){
   await DB.update('exchanges',id,{ status:'rejected', settled_at:new Date().toISOString(), settled_by:state.me });
@@ -1023,12 +1149,21 @@ function sheetReset(mid){
     <div class="note">현재 ${won(bal)}P (${won(bal*M[mid].rate)}원). 내역은 그대로 남고 차감 한 줄이 추가됩니다.
       용돈을 이미 현금으로 줬을 때 쓰세요.</div>
     <div class="field"><label>사유</label><input id="rsNote" value="용돈으로 정산" placeholder="정산 완료"></div>
+    <div class="field"><label>가계부</label><div class="picks" id="rsCash">
+      <button type="button" class="pick on" data-v="y">${won(bal*M[mid].rate)}원 입금으로 기록</button>
+      <button type="button" class="pick" data-v="n">기록 안 함</button></div></div>
     <button class="btn" ${bal<=0?'disabled':''} onclick="doReset('${mid}')">${won(bal)}P 비우기</button>`);
+  bindPicks('rsCash',false);
 }
 async function doReset(mid){
   const bal = balance(mid);
   if(bal<=0) return;
-  await award(mid, -bal, 'reset', null, $('rsNote').value.trim()||'정산 완료');
+  const note = $('rsNote').value.trim()||'정산 완료';
+  await award(mid, -bal, 'reset', null, note);
+  if(picked('rsCash')[0]==='y'){
+    await DB.insert('cashbook',{ member_id:mid, date:todayStr(), amount:bal*M[mid].rate,
+      category:'포인트 정산', note, created_by:state.me });
+  }
   closeSheet(); toast(`${M[mid].name} 포인트를 비웠어요`); render();
 }
 
@@ -1355,14 +1490,20 @@ async function saveChore(){
 function sheetRate(){
   openSheet(`<h3>포인트 단가</h3><div class="sub">1P를 몇 원으로 볼지 정합니다</div>
     ${MEMBERS.filter(m=>m.role==='child').map(m=>`
-      <div class="field"><label>${m.name}</label><input type="number" id="r_${m.id}" value="${m.rate}"></div>`).join('')}
-    <div class="note">이 값은 브라우저에 저장됩니다. 기기마다 따로 설정해야 하니, 팀 ERP처럼 공용 설정 테이블로 옮기고 싶으면 알려주세요.</div>
+      <div class="field"><label>${m.name} · 1P = ?원</label>
+        <input type="number" id="r_${m.id}" value="${m.rate}"></div>`).join('')}
+    <div class="note">가족 공용 값입니다. 한 기기에서 바꾸면 모두에게 적용됩니다.
+      이미 쌓인 포인트의 원 환산도 새 단가로 다시 계산되니, 정산 직전에는 바꾸지 마세요.</div>
     <button class="btn" onclick="saveRate()">저장</button>`);
 }
-function saveRate(){
-  MEMBERS.filter(m=>m.role==='child').forEach(m=>{ m.rate = Number($('r_'+m.id).value)||0; });
-  LS.set('fam.rates', JSON.stringify(Object.fromEntries(MEMBERS.map(m=>[m.id,m.rate]))));
-  closeSheet(); render();
+async function saveRate(){
+  for(const m of MEMBERS.filter(m=>m.role==='child')){
+    const v = Number($('r_'+m.id).value)||0;
+    if(v===m.rate) continue;
+    m.rate = v;
+    await setSetting('rate.'+m.id, v);
+  }
+  closeSheet(); toast('저장했어요'); render();
 }
 
 // ---- 나는 누구
@@ -1417,7 +1558,7 @@ const TABS = [
   { id:'calendar', ic:'▦', nm:'캘린더', title:'캘린더' },
   { id:'timetable',ic:'▤', nm:'시간표', title:'시간표' },
   { id:'trips',    ic:'✈', nm:'여행',   title:'여행' },
-  { id:'points',   ic:'◆', nm:'포인트', title:'포인트' },
+  { id:'points',   ic:'◆', nm:'용돈',   title:'용돈' },
 ];
 function go(t){ state.tab=t; if(t!=='trips') state.tripId=null; render(); }
 
@@ -1470,8 +1611,6 @@ $('keypad').onclick = e => {
 async function boot(){
   $('gate').style.display='none';
   $('app').style.display='block';
-  const rates = LS.get('fam.rates');
-  if(rates){ try{ const r=JSON.parse(rates); MEMBERS.forEach(m=>{ if(r[m.id]!=null) m.rate=r[m.id]; }); }catch(e){} }
   if(useSupa){
     await new Promise(res=>{ const s=document.createElement('script');
       s.src='https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js';
@@ -1479,6 +1618,7 @@ async function boot(){
     supa = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
   }
   await DB.loadAll();
+  applyRates();
   render();
 }
 
@@ -1522,6 +1662,14 @@ function seedDemo(){
   push('point_ledger',{member_id:'cy',amount:120,source:'chore',note:'분리수거',revoked:false});
   push('point_ledger',{member_id:'cy',amount:50,source:'bonus',note:'동생 숙제 도와줌',granted_by:'mh',revoked:false});
   push('point_ledger',{member_id:'cw',amount:80,source:'chore',note:'식탁 정리',revoked:false});
+  const dm=(n)=>addDays(T,-n);
+  push('cashbook',{member_id:'cy',date:dm(12),amount:30000,category:'세뱃돈',note:'외할머니',created_by:'mh'});
+  push('cashbook',{member_id:'cy',date:dm(6),amount:-4500,category:'문구',note:'샤프심이랑 노트',created_by:'cy'});
+  push('cashbook',{member_id:'cy',date:dm(2),amount:-2000,category:'간식',note:'편의점',created_by:'cy'});
+  push('cashbook',{member_id:'cw',date:dm(9),amount:10000,category:'용돈',note:'9월 용돈',created_by:'bg'});
+  push('cashbook',{member_id:'cw',date:dm(1),amount:-3500,category:'장난감',note:'스티커북',created_by:'cw'});
+  push('settings',{key:'rate.cy',value:'5',updated_by:'bg'});
+  push('settings',{key:'rate.cw',value:'5',updated_by:'bg'});
   push('memos',{body:'수요일 분리수거 잊지 말기',author_id:'mh',pinned:true});
   push('dinner_plans',{date:T,cook_id:'bg',absent_ids:['cy']});
   const o1=uid(), o2=uid(), o3=uid();
