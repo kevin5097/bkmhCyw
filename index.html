@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
-<title>r가족</title>
+<title>우리집</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
 <style>
 /* ============================================================
@@ -296,6 +296,28 @@ nav button.on .ic{transform:translateY(-1px)}
 .cash .ca{font-weight:700;font-size:14px;flex:none}
 .cash .ca.plus{color:var(--ok)} .cash .ca.minus{color:var(--ink)}
 
+/* 부모님 돈 블록 */
+.pspend{margin-top:12px;overflow:hidden}
+.pspend .ph{display:flex;justify-content:space-between;align-items:baseline;padding:13px 16px 0;
+  font-size:12.5px;font-weight:700;color:var(--muted)}
+.pspend .pt2{font-weight:600}
+.pspend .pb{padding:6px 16px 12px}
+.pspend .pnum{font-size:26px;font-weight:800;letter-spacing:-.04em}
+.pspend .pnum span{font-size:14px;font-weight:700;margin-left:2px}
+.pspend .pd{margin-top:2px;font-size:12px;color:var(--muted)}
+.pspend .ptot{border-top:1px solid var(--line-soft);padding:11px 16px 12px;background:var(--paper)}
+.pspend .ptr{display:flex;justify-content:space-between;align-items:baseline;font-size:13px;font-weight:600}
+.pspend .ptr b{font-size:15px;font-weight:800;letter-spacing:-.02em}
+.pspend .ptr.dim{color:var(--muted);margin-top:7px;font-weight:500}
+.pspend .ptr.dim b{font-size:13px;font-weight:700}
+.pspend .pkids{display:flex;gap:10px;flex-wrap:wrap;margin-top:4px;font-size:11.5px;color:var(--muted)}
+.pspend .pnote{font-size:11.5px;color:var(--muted);padding:8px 16px;background:var(--paper);
+  border-top:1px solid var(--line-soft)}
+.pbadge{font-style:normal;font-size:10.5px;font-weight:700;color:var(--muted);
+  background:var(--bg-sunk);padding:1.5px 6px;border-radius:4px;margin-left:5px;vertical-align:1px}
+.cash.byparent{background:linear-gradient(var(--paper),var(--paper)) padding-box}
+.cash .ca.byp{color:var(--muted);font-weight:600}
+
 /* ============================================================
    시트
    ============================================================ */
@@ -363,8 +385,8 @@ nav button.on .ic{transform:translateY(-1px)}
    CONFIG — 배포 시 여기만 채우면 됩니다
    ============================================================ */
 const CONFIG = {
-  SUPABASE_URL: 'https://lgrgsvoxdzzbbrxbnalx.supabase.co',          // 예: https://xxxx.supabase.co
-  SUPABASE_ANON_KEY: 'sb_publishable_2-T72SgnioMi0y3UJ2gaEQ_urpoAq-Q',
+  SUPABASE_URL: '',          // 예: https://xxxx.supabase.co
+  SUPABASE_ANON_KEY: '',
   PIN: '0305',
   AI_ENDPOINT: ''            // 자연어 입력용 프록시 (Supabase Edge Function 권장)
 };
@@ -488,6 +510,7 @@ const state = {
   tripDay:0,
   ptMember:'cy',
   ptView:'point',   // point | cash
+  cashFilter:'all', // all | self | parent
   openCards: new Set()
 };
 
@@ -530,8 +553,10 @@ function balance(mid){
   return cache.point_ledger.filter(l=>l.member_id===mid && !l.revoked)
     .reduce((s,l)=>s+Number(l.amount),0);
 }
+// 지갑 잔액은 '본인 돈'만 합산합니다. 부모가 대신 낸 건 잔액과 무관합니다.
 function cashBalance(mid){
-  return cache.cashbook.filter(c=>c.member_id===mid).reduce((s,c)=>s+Number(c.amount),0);
+  return cache.cashbook.filter(c=>c.member_id===mid && !c.payer_id)
+    .reduce((s,c)=>s+Number(c.amount),0);
 }
 async function award(mid, amount, source, ref_id, note){
   await DB.insert('point_ledger',{ member_id:mid, amount, source, ref_id:ref_id||null, note:note||null, granted_by:state.me, revoked:false });
@@ -1037,11 +1062,20 @@ const CAT_OUT = ['간식','문구','장난감','책','저축','기타'];
 function viewCash(mid, isParent){
   const m = M[mid];
   const bal = cashBalance(mid);
-  const rows = cache.cashbook.filter(c=>c.member_id===mid)
-    .sort((a,b)=>(b.date+b.created_at).localeCompare(a.date+a.created_at));
+  const all = cache.cashbook.filter(c=>c.member_id===mid);
   const thisMonth = todayStr().slice(0,7);
-  const mIn  = rows.filter(r=>r.date.startsWith(thisMonth) && r.amount>0).reduce((s,r)=>s+r.amount,0);
-  const mOut = rows.filter(r=>r.date.startsWith(thisMonth) && r.amount<0).reduce((s,r)=>s-r.amount,0);
+
+  const mIn   = all.filter(r=>!r.payer_id && r.date.startsWith(thisMonth) && r.amount>0).reduce((s,r)=>s+r.amount,0);
+  const mOut  = all.filter(r=>!r.payer_id && r.date.startsWith(thisMonth) && r.amount<0).reduce((s,r)=>s-r.amount,0);
+  const pMon  = all.filter(r=>r.payer_id && r.date.startsWith(thisMonth) && r.amount<0).reduce((s,r)=>s-r.amount,0);
+  const pAll  = all.filter(r=>r.payer_id && r.amount<0).reduce((s,r)=>s-r.amount,0);
+  // 부모가 볼 때는 아이별 합산도 같이
+  const kids = MEMBERS.filter(x=>x.role==='child').map(k=>({ k,
+    mon: cache.cashbook.filter(r=>r.member_id===k.id && r.payer_id && r.amount<0
+          && r.date.startsWith(thisMonth)).reduce((s,r)=>s-r.amount,0),
+    all: cache.cashbook.filter(r=>r.member_id===k.id && r.payer_id && r.amount<0)
+          .reduce((s,r)=>s-r.amount,0) }));
+  const totMon = kids.reduce((s,x)=>s+x.mon,0), totAll = kids.reduce((s,x)=>s+x.all,0);
 
   let h = `<div class="card ptop">
     <div class="lb">${m.name}의 지갑</div>
@@ -1056,20 +1090,48 @@ function viewCash(mid, isParent){
     </div>
   </div>`;
 
-  if(bal<0) h += `<div class="note" style="margin-top:12px;color:var(--warn)">잔액이 마이너스입니다. 빠뜨린 수입이 있는지 확인해보세요.</div>`;
+  // 부모님 돈 요약 — 지갑과 완전히 분리된 블록
+  h += `<div class="card pspend">
+    <div class="ph"><span>부모님 돈으로 쓴 것</span><span class="pt2">이번 달 ${won(pMon)}원</span></div>
+    <div class="pb">
+      <div class="pnum">${won(pAll)}<span>원</span></div>
+      <div class="pd">누적</div>
+    </div>
+    ${isParent ? `<div class="ptot">
+      <div class="ptr"><span>이번 달 두 아이 합계</span><b>${won(totMon)}원</b></div>
+      <div class="pkids">${kids.map(x=>`<span>${x.k.name} ${won(x.mon)}원</span>`).join('')}</div>
+      <div class="ptr dim"><span>전체 누적</span><b>${won(totAll)}원</b></div>
+    </div>` : `<div class="pnote">지갑 잔액에는 포함되지 않습니다</div>`}
+  </div>`;
 
-  h += `<div class="sec"><div class="sec-h"><h2>내역</h2><span class="act">${rows.length}건</span></div>`;
+  if(bal<0) h += `<div class="note" style="margin-top:12px;color:var(--warn)">지갑 잔액이 마이너스입니다. 빠뜨린 수입이 있는지 확인해보세요.</div>`;
+
+  // 내역 + 필터
+  const F = state.cashFilter;
+  let rows = all;
+  if(F==='self')   rows = all.filter(r=>!r.payer_id);
+  if(F==='parent') rows = all.filter(r=>r.payer_id);
+  rows = rows.sort((a,b)=>(b.date+(b.created_at||'')).localeCompare(a.date+(a.created_at||'')));
+
+  h += `<div class="sec"><div class="sec-h"><h2>내역</h2><span class="act">${rows.length}건</span></div>
+    <div class="filters">
+      <button class="fchip ${F==='all'?'on':'off'}" onclick="state.cashFilter='all';render()">전체</button>
+      <button class="fchip ${F==='self'?'on':'off'}" onclick="state.cashFilter='self';render()">내 돈</button>
+      <button class="fchip ${F==='parent'?'on':'off'}" onclick="state.cashFilter='parent';render()">부모님 돈</button>
+    </div>`;
+
   if(!rows.length){ h += `<div class="empty">받거나 쓴 걸 기록해보세요</div></div>`; return h; }
 
   let lastDate = null;
-  h += `<div class="card">` + rows.slice(0,60).map(r=>{
+  h += `<div class="card">` + rows.slice(0,80).map(r=>{
     let head = '';
-    if(r.date!==lastDate){ lastDate=r.date;
-      head = `<div class="cashday">${fmtKo(r.date)}</div>`; }
-    return head + `<div class="cash" onclick="sheetCash('${mid}',${r.amount>0?1:-1},'${r.id}')">
-      <div style="flex:1"><div>${esc(r.note||r.category||'')}</div>
+    if(r.date!==lastDate){ lastDate=r.date; head = `<div class="cashday">${fmtKo(r.date)}</div>`; }
+    const p = !!r.payer_id;
+    return head + `<div class="cash ${p?'byparent':''}" onclick="sheetCash('${mid}',${r.amount>0?1:-1},'${r.id}')">
+      <div style="flex:1"><div>${esc(r.note||r.category||'')}
+        ${p?`<i class="pbadge">부모님</i>`:''}</div>
         ${r.category&&r.note?`<div class="d">${esc(r.category)}</div>`:''}</div>
-      <span class="ca ${r.amount>0?'plus':'minus'}">${r.amount>0?'+':'−'}${won(Math.abs(r.amount))}</span>
+      <span class="ca ${r.amount>0?'plus':(p?'byp':'minus')}">${r.amount>0?'+':'−'}${won(Math.abs(r.amount))}</span>
     </div>`;
   }).join('') + `</div></div>`;
   return h;
@@ -1086,21 +1148,30 @@ function sheetCash(mid, sign, id){
     <div class="field"><label>분류</label><div class="picks" id="cCat">
       ${cats.map(c=>`<button type="button" class="pick ${r?.category===c?'on':''}" data-v="${c}">${c}</button>`).join('')}
     </div></div>
+    ${s<0?`<div class="field"><label>누구 돈으로</label><div class="picks" id="cPayer">
+      <button type="button" class="pick ${!r?.payer_id?'on':''}" data-v="self">내 돈</button>
+      <button type="button" class="pick ${r?.payer_id?'on':''}" data-v="parent">부모님 돈</button>
+    </div></div>`:''}
     <div class="field"><label>내용</label>
       <input id="cNote" value="${esc(r?.note||'')}" placeholder="${s>0?'할머니한테 받음':'편의점 젤리'}"></div>
     <div class="field"><label>날짜</label>
       <input type="date" id="cDate" value="${r?.date||todayStr()}"></div>
     <button class="btn" onclick="saveCash('${mid}',${s},${r?`'${r.id}'`:'null'})">${r?'수정':'기록'}</button>
     ${r?`<button class="btn ghost" style="margin-top:8px;color:var(--warn)" onclick="delCash('${r.id}')">삭제</button>`:''}`);
-  bindPicks('cCat',false);
+  bindPicks('cCat',false); bindPicks('cPayer',false);
 }
 async function saveCash(mid, sign, id){
   const v = Math.abs(Number($('cAmt').value)||0);
   if(!v) return toast('금액을 입력하세요');
+  const pay = sign<0 ? (picked('cPayer')[0]||'self') : 'self';
   const row = { member_id:mid, date:$('cDate').value, amount:sign*v,
-    category:picked('cCat')[0]||null, note:$('cNote').value.trim()||null, created_by:state.me };
+    category:picked('cCat')[0]||null, note:$('cNote').value.trim()||null,
+    payer_id: pay==='self' ? null : pay, created_by:state.me };
   if(id) await DB.update('cashbook',id,row); else await DB.insert('cashbook',row);
-  closeSheet(); toast(id?'수정했어요':(sign>0?`+${won(v)}원`:`−${won(v)}원`)); render();
+  closeSheet();
+  toast(id?'수정했어요':(sign>0?`+${won(v)}원`
+    :(row.payer_id?`부모님 돈 ${won(v)}원`:`−${won(v)}원`)));
+  render();
 }
 async function delCash(id){
   if(!confirm('이 내역을 지울까요?')) return;
@@ -1666,6 +1737,8 @@ function seedDemo(){
   push('cashbook',{member_id:'cy',date:dm(12),amount:30000,category:'세뱃돈',note:'외할머니',created_by:'mh'});
   push('cashbook',{member_id:'cy',date:dm(6),amount:-4500,category:'문구',note:'샤프심이랑 노트',created_by:'cy'});
   push('cashbook',{member_id:'cy',date:dm(2),amount:-2000,category:'간식',note:'편의점',created_by:'cy'});
+  push('cashbook',{member_id:'cy',date:dm(4),amount:-18000,category:'책',note:'문제집',payer_id:'parent',created_by:'mh'});
+  push('cashbook',{member_id:'cw',date:dm(3),amount:-12000,category:'문구',note:'미술 준비물',payer_id:'parent',created_by:'bg'});
   push('cashbook',{member_id:'cw',date:dm(9),amount:10000,category:'용돈',note:'9월 용돈',created_by:'bg'});
   push('cashbook',{member_id:'cw',date:dm(1),amount:-3500,category:'장난감',note:'스티커북',created_by:'cw'});
   push('settings',{key:'rate.cy',value:'5',updated_by:'bg'});
