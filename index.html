@@ -86,9 +86,9 @@ main{padding:0 18px calc(96px + var(--safe-b))}
 nav{position:fixed;left:0;right:0;bottom:0;z-index:60;
   background:rgba(244,245,242,.94);backdrop-filter:blur(12px);border-top:1px solid var(--line);
   padding-bottom:var(--safe-b)}
-.navin{max-width:480px;margin:0 auto;display:grid;grid-template-columns:repeat(5,1fr)}
+.navin{max-width:480px;margin:0 auto;display:grid;grid-template-columns:repeat(6,1fr)}
 nav button{padding:9px 0 10px;display:flex;flex-direction:column;align-items:center;gap:3px;
-  font-size:10.5px;font-weight:600;color:var(--muted)}
+  font-size:10px;font-weight:600;color:var(--muted);white-space:nowrap}
 nav button .ic{font-size:18px;line-height:1}
 nav button.on{color:var(--ink)}
 nav button.on .ic{transform:translateY(-1px)}
@@ -154,13 +154,19 @@ nav button.on .ic{transform:translateY(-1px)}
   padding:0 2px}
 .votefoot .av{width:16px;height:16px;border-radius:50%;flex:none}
 
-/* 메모 */
-.memo{padding:12px 14px;border-bottom:1px solid var(--line-soft);display:flex;gap:10px;align-items:flex-start}
-.memo:last-child{border-bottom:0}
-.memo .dot{width:7px;height:7px;border-radius:50%;margin-top:7px;flex:none}
-.memo .bd{flex:1}
-.memo .mm{font-size:11.5px;color:var(--muted);margin-top:2px}
-.memo .x{color:var(--muted);font-size:16px;padding:0 2px}
+/* 할 일 탭 */
+.tdtop{display:grid;grid-template-columns:repeat(3,1fr);padding:15px 6px}
+.tdtop>div{text-align:center;border-right:1px solid var(--line-soft)}
+.tdtop>div:last-child{border-right:0}
+.tdtop .n{font-size:26px;font-weight:800;letter-spacing:-.04em;line-height:1}
+.tdtop .n.warn{color:var(--warn)}
+.tdtop .l{font-size:11.5px;color:var(--muted);margin-top:4px}
+.todo .sub2{font-size:11.5px;color:var(--muted);margin-top:3px;display:flex;
+  align-items:center;gap:6px;flex-wrap:wrap}
+.todo .sub2 .who2{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:-2px}
+.todo .sub2 .late{color:var(--warn);font-weight:700}
+.todo .sub2 .soon{color:var(--ok);font-weight:700}
+.todo .sub2 .ctx{background:var(--bg-sunk);padding:1px 6px;border-radius:4px}
 
 /* 할일 */
 .todo{display:flex;gap:11px;padding:11px 14px;align-items:center;border-bottom:1px solid var(--line-soft)}
@@ -169,7 +175,7 @@ nav button.on .ic{transform:translateY(-1px)}
   display:flex;align-items:center;justify-content:center;font-size:12px;color:#fff}
 .chk.on{background:var(--ok);border-color:var(--ok)}
 .todo.done .tx{text-decoration:line-through;color:var(--muted)}
-.todo .tx{flex:1;font-size:14px}
+.todo .tx{flex:1;font-size:14px;min-width:0}
 .todo .pt{font-size:11.5px;font-weight:700;color:var(--cy);flex:none}
 
 /* D-day */
@@ -385,8 +391,8 @@ nav button.on .ic{transform:translateY(-1px)}
    CONFIG — 배포 시 여기만 채우면 됩니다
    ============================================================ */
 const CONFIG = {
-  SUPABASE_URL: 'https://lgrgsvoxdzzbbrxbnalx.supabase.co',          // 예: https://xxxx.supabase.co
-  SUPABASE_ANON_KEY: 'sb_publishable_2-T72SgnioMi0y3UJ2gaEQ_urpoAq-Q',
+  SUPABASE_URL: '',          // 예: https://xxxx.supabase.co
+  SUPABASE_ANON_KEY: '',
   PIN: '0305',
   AI_ENDPOINT: ''            // 자연어 입력용 프록시 (Supabase Edge Function 권장)
 };
@@ -432,7 +438,7 @@ function toast(msg){
 /* ============================================================
    저장소 — Supabase 있으면 원격, 없으면 메모리(둘러보기)
    ============================================================ */
-const TABLES = ['events','checklist_items','trips','chores','chore_logs','point_ledger','exchanges','memos','dinner_plans','dinner_options','dinner_votes','homecomings','settings','cashbook','audit_logs'];
+const TABLES = ['events','checklist_items','trips','chores','chore_logs','point_ledger','exchanges','dinner_plans','dinner_options','dinner_votes','homecomings','settings','cashbook','audit_logs'];
 // 같은 Supabase 프로젝트에 다른 앱 테이블이 있어도 부딪히지 않도록 접두사를 씁니다.
 // 코드 안에서는 cache.events 처럼 짧은 이름 그대로 쓰고, 원격 호출할 때만 붙입니다.
 const PREFIX = 'fam_';
@@ -604,41 +610,35 @@ function viewToday(){
                   : `<div class="empty">오늘은 비어 있어요</div>`;
   h += `</div>`;
 
-  // 미처리 할 일
-  const undone = cache.checklist_items.filter(c=>!c.done && !c.trip_id &&
-      (!c.event_id || cache.events.some(e=>e.id===c.event_id && occursOn(e,T))));
-  if(undone.length){
-    h += `<div class="sec"><div class="sec-h"><h2>챙길 것</h2></div><div class="card">
-      ${undone.slice(0,6).map(c=>todoRow(c)).join('')}</div></div>`;
-  }
-
-  // 집안일
-  const chores = cache.chores.filter(c=>choreDue(c,T));
-  if(chores.length){
-    h += `<div class="sec"><div class="sec-h"><h2>집안일</h2><button class="act" onclick="go('points')">전체</button></div>
-      <div class="card">${chores.map(c=>choreRow(c,T)).join('')}</div></div>`;
-  }
-
-  // 메모
-  const memos = [...cache.memos].sort((a,b)=>(b.pinned?1:0)-(a.pinned?1:0)||b.created_at.localeCompare(a.created_at));
-  h += `<div class="sec"><div class="sec-h"><h2>가족 메모</h2><button class="act" onclick="sheetMemo()">쓰기</button></div>`;
-  h += memos.length ? `<div class="card">${memos.slice(0,3).map(m=>`
-      <div class="memo"><i class="dot" style="background:${M[m.author_id]?.color||'#ccc'}"></i>
-        <div class="bd"><div>${esc(m.body)}</div>
-        <div class="mm">${M[m.author_id]?.name||''} · ${m.created_at.slice(5,10).replace('-','/')}</div></div>
-        <button class="x" onclick="delMemo('${m.id}')">×</button></div>`).join('')}</div>`
-    : `<div class="empty">쓰레기 버리는 날, 택배 왔음 같은 것들</div>`;
+  // 할 일 — 마감이 지났거나 오늘까지인 것, 그리고 오늘 일정에 딸린 준비물
+  const solo = cache.checklist_items.filter(c=>!c.done && !c.trip_id && !c.event_id
+    && (!c.due_date || c.due_date<=T));
+  const attached = cache.checklist_items.filter(c=>!c.done && c.event_id
+    && cache.events.some(e=>e.id===c.event_id && occursOn(e,T)));
+  const todos = [...solo,...attached];
+  h += `<div class="sec"><div class="sec-h"><h2>할 일</h2>
+    <button class="act" onclick="go('todo')">전체</button></div>`;
+  h += todos.length ? `<div class="card">${todos.slice(0,6).map(c=>todoRow(c)).join('')}</div>`
+    : `<div class="empty" onclick="sheetTodo()">챙길 일을 적어두세요</div>`;
   h += `</div>`;
 
   // D-day
   const anns = upcomingAnniversaries(T,4);
   h += `<div class="sec"><div class="sec-h"><h2>다가오는 날</h2>
-    <button class="act" onclick="sheetEvent(null,null,'anniversary')">추가</button></div>`;
+    <button class="act" onclick="sheetAnniversaries()">모두 보기</button></div>`;
   h += anns.length ? `<div class="dday">
       ${anns.map(a=>`<button class="it" onclick="sheetEvent('${a.id}')">
         <div class="n">${esc(a.title)}</div><div class="d">D-${a.d===0?'DAY':a.d}</div></button>`).join('')}
     </div>` : `<div class="empty" onclick="sheetEvent(null,null,'anniversary')">생일, 기념일을 넣어두세요</div>`;
   h += `</div>`;
+
+  // 집안일
+  const chores = cache.chores.filter(c=>choreDue(c,T));
+  if(chores.length){
+    h += `<div class="sec"><div class="sec-h"><h2>집안일</h2>
+      <button class="act" onclick="go('points')">포인트</button></div>
+      <div class="card">${chores.map(c=>choreRow(c,T)).join('')}</div></div>`;
+  }
   return h;
 }
 
@@ -689,6 +689,157 @@ async function delDinnerOption(id){
   for(const v of cache.dinner_votes.filter(v=>v.option_id===id)) await DB.remove('dinner_votes',v.id);
   await DB.remove('dinner_options',id);
   render();
+}
+
+/* ============================================================
+   할 일 — 독립 할 일 + 일정 준비물 + 여행 짐을 한곳에서
+   ============================================================ */
+function viewTodo(){
+  const T = todayStr();
+  const all = cache.checklist_items;
+  const inFilter = c => !c.assignee_id || state.filters.has(c.assignee_id);
+
+  const solo = all.filter(c=>!c.event_id && !c.trip_id && inFilter(c));
+  const attached = all.filter(c=>c.event_id && !c.trip_id && inFilter(c));
+  const packs = all.filter(c=>c.trip_id && inFilter(c));
+
+  let h = `<div class="filters">` + MEMBERS.map(m=>`
+    <button class="fchip ${state.filters.has(m.id)?'on':'off'}" onclick="toggleFilter('${m.id}')">
+      <i class="d" style="background:${m.color}"></i>${m.name}</button>`).join('') + `</div>`;
+
+  const open = solo.filter(c=>!c.done);
+  const overdue = open.filter(c=>c.due_date && c.due_date<T);
+  const done = solo.filter(c=>c.done);
+
+  h += `<div class="card tdtop">
+    <div><div class="n">${open.length}</div><div class="l">남은 할 일</div></div>
+    <div><div class="n ${overdue.length?'warn':''}">${overdue.length}</div><div class="l">기한 지남</div></div>
+    <div><div class="n">${done.length}</div><div class="l">완료</div></div>
+  </div>`;
+
+  h += `<button class="btn" style="margin-top:12px" onclick="sheetTodo()">할 일 추가</button>`;
+
+  // 가족 할 일
+  h += `<div class="sec"><div class="sec-h"><h2>가족 할 일</h2><span class="act">${open.length}건</span></div>`;
+  if(open.length){
+    const sorted = [...open].sort((a,b)=>
+      (a.due_date||'9999').localeCompare(b.due_date||'9999'));
+    h += `<div class="card">${sorted.map(c=>todoFull(c,T)).join('')}</div>`;
+  }else{
+    h += `<div class="empty" onclick="sheetTodo()">남은 할 일이 없어요</div>`;
+  }
+  h += `</div>`;
+
+  // 일정 준비물
+  const attOpen = attached.filter(c=>!c.done);
+  if(attOpen.length){
+    h += `<div class="sec"><div class="sec-h"><h2>일정 준비물</h2><span class="act">${attOpen.length}건</span></div>
+      <div class="card">${attOpen.map(c=>{
+        const e = cache.events.find(x=>x.id===c.event_id);
+        return todoFull(c,T,e?e.title:null);
+      }).join('')}</div></div>`;
+  }
+
+  // 여행 짐
+  const pkOpen = packs.filter(c=>!c.done);
+  if(pkOpen.length){
+    h += `<div class="sec"><div class="sec-h"><h2>여행 짐</h2><span class="act">${pkOpen.length}건</span></div>
+      <div class="card">${pkOpen.map(c=>{
+        const t = cache.trips.find(x=>x.id===c.trip_id);
+        return todoFull(c,T,t?t.title:null);
+      }).join('')}</div></div>`;
+  }
+
+  // 완료
+  if(done.length){
+    h += `<div class="sec"><div class="sec-h"><h2>완료</h2>
+      <button class="act" onclick="clearDoneTodos()">비우기</button></div>
+      <div class="card">${done.slice(0,20).map(c=>todoFull(c,T)).join('')}</div></div>`;
+  }
+  return h;
+}
+
+function todoFull(c, T, ctx){
+  const late = !c.done && c.due_date && c.due_date < T;
+  const soon = !c.done && c.due_date === T;
+  const a = c.assignee_id ? M[c.assignee_id] : null;
+  return `<div class="todo ${c.done?'done':''}">
+    <button class="chk ${c.done?'on':''}" onclick="event.stopPropagation();toggleCheck('${c.id}')">${c.done?'✓':''}</button>
+    <div class="tx" onclick="sheetTodo('${c.id}')">
+      <div>${esc(c.title)}</div>
+      <div class="sub2">
+        ${a?`<i class="who2" style="background:${a.color}"></i>${a.name}`:''}
+        ${c.due_date?`<span class="${late?'late':(soon?'soon':'')}">${late?'기한 지남 · ':''}${fmtKo(c.due_date)}</span>`:''}
+        ${ctx?`<span class="ctx">${esc(ctx)}</span>`:''}
+      </div>
+    </div>
+    ${c.point_value>0?`<span class="pt">+${c.point_value}P</span>`:''}
+  </div>`;
+}
+
+function sheetTodo(id){
+  const c = id ? cache.checklist_items.find(x=>x.id===id) : null;
+  openSheet(`<h3>${c?'할 일 수정':'할 일 추가'}</h3>
+    <div class="sub">일정에 안 묶이는 집안 일들을 여기에</div>
+    <div class="field"><label>내용</label>
+      <input id="tdTitle" value="${esc(c?.title||'')}" placeholder="분리수거, 치약 사오기"></div>
+    <div class="field"><label>담당</label>${memberPicks('tdWho', c?.assignee_id?[c.assignee_id]:[], {allowNone:true})}</div>
+    <div class="field"><label>마감 (없어도 됩니다)</label>
+      <input type="date" id="tdDue" value="${c?.due_date||''}"></div>
+    <div class="field"><label>포인트</label>
+      <input type="number" id="tdPt" value="${c?.point_value||0}"></div>
+    <button class="btn" onclick="saveTodo(${c?`'${c.id}'`:'null'})">${c?'수정':'추가'}</button>
+    ${c?`<button class="btn ghost" style="margin-top:8px;color:var(--warn)" onclick="delTodo('${c.id}')">삭제</button>`:''}`);
+  bindPicks('tdWho',false);
+  if(!c) setTimeout(()=>$('tdTitle')?.focus(),260);
+}
+async function saveTodo(id){
+  const t = $('tdTitle').value.trim();
+  if(!t) return toast('내용을 입력하세요');
+  const row = { title:t, assignee_id:picked('tdWho')[0]||null,
+    due_date:$('tdDue').value||null, point_value:Number($('tdPt').value)||0 };
+  if(id) await DB.update('checklist_items',id,row);
+  else await DB.insert('checklist_items', Object.assign(row,
+    { event_id:null, trip_id:null, done:false, created_by:state.me }));
+  closeSheet(); toast(id?'수정했어요':'추가했어요'); render();
+}
+async function delTodo(id){
+  const c = cache.checklist_items.find(x=>x.id===id);
+  await audit('checklist_items',id,'delete',c);
+  await DB.remove('checklist_items',id);
+  closeSheet(); toast('삭제했어요'); render();
+}
+async function clearDoneTodos(){
+  const done = cache.checklist_items.filter(c=>c.done && !c.event_id && !c.trip_id);
+  if(!confirm(`완료된 ${done.length}건을 지울까요?`)) return;
+  for(const c of done) await DB.remove('checklist_items',c.id);
+  toast('정리했어요'); render();
+}
+
+/* ============================================================
+   기념일 전체 보기
+   ============================================================ */
+function sheetAnniversaries(){
+  const T = todayStr();
+  const list = cache.events.filter(e=>e.type==='anniversary')
+    .map(e=>{
+      const s = parseYmd(e.starts_on);
+      let n = new Date(parseYmd(T).getFullYear(), s.getMonth(), s.getDate());
+      if(ymd(n) < T) n = new Date(n.getFullYear()+1, s.getMonth(), s.getDate());
+      return { e, d: diffDays(T, ymd(n)), next: ymd(n),
+               years: n.getFullYear() - s.getFullYear() };
+    }).sort((a,b)=>a.d-b.d);
+
+  openSheet(`<h3>다가오는 날</h3><div class="sub">생일과 기념일 전체 ${list.length}개</div>
+    ${list.length ? list.map(x=>`
+      <div class="led" onclick="closeSheet();setTimeout(()=>sheetEvent('${x.e.id}'),180)">
+        <div style="flex:1"><div style="font-weight:600">${esc(x.e.title)}</div>
+          <div class="d">${fmtKo(x.next)}${x.years>0?` · ${x.years}주년`:''}
+            ${(x.e.target_ids||[]).map(i=>M[i]?.name).filter(Boolean).join(', ')}</div></div>
+        <span class="a ${x.d<=7?'plus':''}">D-${x.d===0?'DAY':x.d}</span>
+      </div>`).join('') : `<div class="empty">등록된 기념일이 없어요</div>`}
+    <button class="btn" style="margin-top:14px"
+      onclick="closeSheet();setTimeout(()=>sheetEvent(null,null,'anniversary'),180)">기념일 추가</button>`);
 }
 
 function evRow(e, nowHm){
@@ -1430,20 +1581,6 @@ async function saveDinner(){
   closeSheet(); render();
 }
 
-// ---- 메모
-function sheetMemo(){
-  openSheet(`<h3>가족 메모</h3><div class="sub">일정이 아닌 것들을 여기에</div>
-    <div class="field"><textarea id="mBody" rows="3" placeholder="분리수거 내일, 치약 사와"></textarea></div>
-    <button class="btn" onclick="saveMemo()">남기기</button>`);
-  setTimeout(()=>$('mBody')?.focus(),260);
-}
-async function saveMemo(){
-  const b = $('mBody').value.trim(); if(!b) return;
-  await DB.insert('memos',{ body:b, author_id:state.me, pinned:false });
-  closeSheet(); render();
-}
-async function delMemo(id){ event.stopPropagation(); await DB.remove('memos',id); render(); }
-
 // ---- 여행
 function sheetTrip(){
   openSheet(`<h3>새 여행</h3><div class="sub">날짜를 넣으면 캘린더에 기간으로 표시됩니다</div>
@@ -1594,7 +1731,7 @@ function sheetAdd(){
       <textarea id="nlText" rows="2" placeholder="다음주 화요일 채원이 치과 4시"></textarea></div>
     <button class="btn" onclick="parseNL()">읽어서 채우기</button>
     <button class="btn ghost" style="margin-top:8px" onclick="closeSheet();setTimeout(()=>sheetEvent(),180)">직접 입력</button>
-    <button class="btn ghost" style="margin-top:8px" onclick="closeSheet();setTimeout(()=>sheetMemo(),180)">메모 남기기</button>
+    <button class="btn ghost" style="margin-top:8px" onclick="closeSheet();setTimeout(()=>sheetTodo(),180)">할 일 추가</button>
     ${!CONFIG.AI_ENDPOINT?`<div class="note" style="margin-top:14px">말로 입력은 AI 연결이 필요합니다. CONFIG.AI_ENDPOINT에 프록시 주소를 넣으면 켜집니다.</div>`:''}`);
 }
 async function parseNL(){
@@ -1626,6 +1763,7 @@ async function parseNL(){
    ============================================================ */
 const TABS = [
   { id:'today',    ic:'◉', nm:'오늘',   title:'오늘' },
+  { id:'todo',     ic:'✓', nm:'할 일',  title:'할 일' },
   { id:'calendar', ic:'▦', nm:'캘린더', title:'캘린더' },
   { id:'timetable',ic:'▤', nm:'시간표', title:'시간표' },
   { id:'trips',    ic:'✈', nm:'여행',   title:'여행' },
@@ -1643,7 +1781,8 @@ function render(){
   $('nav').innerHTML = TABS.map(t=>`<button class="${state.tab===t.id?'on':''}" onclick="go('${t.id}')">
     <span class="ic">${t.ic}</span><span>${t.nm}</span></button>`).join('');
 
-  const v = { today:viewToday, calendar:viewCalendar, timetable:viewTimetable, trips:viewTrips, points:viewPoints }[state.tab];
+  const v = { today:viewToday, todo:viewTodo, calendar:viewCalendar,
+              timetable:viewTimetable, trips:viewTrips, points:viewPoints }[state.tab];
   $('view').innerHTML = v();
   $('fab').style.display = state.tab==='points' ? 'none' : 'flex';
 }
@@ -1743,7 +1882,12 @@ function seedDemo(){
   push('cashbook',{member_id:'cw',date:dm(1),amount:-3500,category:'장난감',note:'스티커북',created_by:'cw'});
   push('settings',{key:'rate.cy',value:'5',updated_by:'bg'});
   push('settings',{key:'rate.cw',value:'5',updated_by:'bg'});
-  push('memos',{body:'수요일 분리수거 잊지 말기',author_id:'mh',pinned:true});
+  push('checklist_items',{event_id:null,trip_id:null,title:'분리수거 봉투 사기',
+    assignee_id:'bg',due_date:addDays(T,1),done:false,point_value:0,created_by:'mh'});
+  push('checklist_items',{event_id:null,trip_id:null,title:'채원 실내화 빨기',
+    assignee_id:'cw',due_date:addDays(T,-1),done:false,point_value:10,created_by:'mh'});
+  push('checklist_items',{event_id:null,trip_id:null,title:'가스점검 예약',
+    assignee_id:null,due_date:null,done:false,point_value:0,created_by:'bg'});
   push('dinner_plans',{date:T,cook_id:'bg',absent_ids:['cy']});
   const o1=uid(), o2=uid(), o3=uid();
   cache.dinner_options.push(
